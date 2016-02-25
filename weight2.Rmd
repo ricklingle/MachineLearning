@@ -1,0 +1,155 @@
+---
+title: "Dumbbell Machine Learning"
+author: "EL"
+date: "Monday, February 22, 2016"
+output: html_document
+---
+Weight Lifting Exercise
+=======================
+#Machine Learning Activity
+A weight lifting data set of six participants performing a Unilateral Dumbbell Bicep Curl in five different fashions (classe) was analyzed with machine learning algorithms to determine if the lifting method could be predicting based on four sensors.  The sensors were positioned 1. on the participants arm, 2. on the participants belt, 3. on the participants forearm, and 4. on the dumbbell.
+The complete description and data set can be found at [Weight Lifting Exercise][1]
+
+#Data Pre-processing
+The empty columns were removed from the main data set after loading.  Then the data was separated into a training and testing set with createDataPartition from the caret package.  Four separate training data sets were extracted for analysis, based on the sensors: 
+1. Belt
+2. Arm
+3. Forearm
+4. Dumbbell  
+Pairs plots were created and analyzed for any patters or significant factors.  Due to space, they were not included in the report.
+
+```{r}
+library(caret)
+library(ggplot2)
+b1<-read.csv("pml-training.csv")
+bad <-c(1,3:7,12:36,50:59,69:83,87:101,103:112,125:139,141:150)
+b2 <- b1[,-bad]
+
+inTrain <- createDataPartition(b2$classe, p=0.75)[[1]]
+training <- b2[inTrain,]
+testing <- b2[-inTrain,]
+b.belt <- training[,1:14]
+b.belt$classe <- training[,54]
+#pairs(b.belt)
+b.a <- c(1, 15:27, 54)
+b.arm <- training[,b.a]
+#pairs(b.arm)
+b.db <- c(1, 28:40, 54)
+b.dumbell <- training[,b.db]
+#pairs(b.arm)
+b.fr <- c(1,41:54)
+b.forearm <- training[,b.fr]
+#pairs(b.forearm)
+
+
+```
+
+#Model Building
+Due to no glaring obvious factors or linear trends in the pairs plots, Random Forests were used to create a prediction model for all 4 sensor data sets.  To keep processing time down, a trControl of 10folds was used.  The prediction on the partitioned test is also calculated using the confusionMatrix to calculate the accuracy as summarized below.
+
+```{r}
+fitControl <- trainControl(method = "cv",
+                           number = 10,
+                           allowParallel = TRUE)
+
+##1 Belt
+model.belt <-train(classe ~ ., method="rf",
+                   data=b.belt, trControl = fitControl)
+p.belt <- predict(model.belt, testing)
+m1 <- confusionMatrix(p.belt, testing$classe)
+m1a <- round(m1$overall[1], 4)
+
+##2 Arm
+model.arm <-train(classe ~ ., method="rf", data=b.arm, 
+                  trControl = fitControl)
+p.arm <- predict(model.arm, testing)
+m2 <- confusionMatrix(p.arm, testing$classe)
+m2a <- round(m2$overall[1], 4)
+
+##3 Dumbbell
+model.db <-train(classe ~ ., method="rf", data=b.dumbell, 
+                 trControl = fitControl)
+p.db <- predict(model.db, testing)
+m3 <- confusionMatrix(p.db, testing$classe)
+m3a <- round(m3$overall[1], 4)
+
+##4 Forearm
+model.fa <-train(classe ~ ., method="rf", data=b.forearm,
+                 trControl = fitControl)
+p.fa <- predict(model.fa, testing)
+m4 <- confusionMatrix(p.fa, testing$classe)
+m4a <- round(m4$overall[1], 4)
+
+```
+Of the four models, Belt has the best accuracy of `r m1a`.  A fifth model was also created, which is just a Random Forest of the overall partitioned training data set, with prediction and confusionMatrix to calculate accuracy:
+
+```{r}
+##5 Overall Random Forest
+model.ov <- train(classe ~ ., method="rf", data=training,
+                  trControl = fitControl)
+p.ov <- predict(model.ov, testing)
+m5 <- confusionMatrix(p.ov, testing$classe)
+m5a <- round(m5$overall[1], 4)
+m5eos <- round(1-m5a, 4)
+
+#combine 5 prediction models
+predDF <- data.frame(p.belt, p.arm, p.db, p.fa, p.ov)
+
+```
+
+The accuracy comparison of the five models were compared to determine which model to use:
+
+```{r}
+acc <- data.frame(m1a, m2a, m3a, m4a, m5a)
+names(acc) <- c("Belt", "Arm", "Dumbbell", "Forearm", "Overall")
+print(acc)
+```
+
+ConfusionMatrix of #5 Model, showing accuracy and errors based on the partitioned test set:
+```{r}
+print(m5)
+```
+
+#Final Model
+The #5 model prediction (overall Random Forest) has the best accuracy of all models when calculated with the partitioned test set. The expected out of sample error (1-accuracy) is `r m5eos` for the Model 5 (overall random forest.)  The final prediction from the five models for the 20 test problems are shown below.  Since the #5model had the best accuracy, that solution was submitted.
+
+```{r}
+##Predict classes from testing set:
+t1<-read.csv("pml-testing.csv")
+t2 <- t1[,-bad]
+t.belt <- t2[,1:14]
+t.belt$problem_id <- t2[,54]
+t.arm <- t2[,b.a]
+t.dumbell <- t2[,b.db]
+t.forearm <- t2[,b.fr]
+test.belt <- predict(model.belt, t.belt)
+test.arm <- predict(model.arm, t.arm)
+test.dumbell <- predict(model.db, t.dumbell)
+test.forearm <- predict(model.fa, t.forearm)
+test.overall <- predict(model.ov, t2)
+testpredDF <- data.frame(test.belt, test.arm, test.dumbell, 
+                         test.forearm, test.overall)
+
+names(testpredDF) <- c("Belt", "Arm", "Dumbbell", "Forearm", "Overall")
+
+#Final Decisions:
+final <- data.frame(problem_id = t2$problem_id, classe = testpredDF[,5])
+```
+
+#Summary of Prediction
+Final prediction from each of the five models.  Note the Model5 Overall results were submitted for the quiz:
+
+```{r}
+print(testpredDF)
+```
+
+The varImp function was used on the five models to see importance of the various factors.  A graph showing the relationship of two of the most significant factors compared to the lifting classe is shown below:
+
+```{r}
+qq <- qplot(roll_belt, pitch_forearm, colour=classe, data=b2)
+qq + labs(title="Dumbbell Exercises")
+```
+
+
+
+[1]: http://groupware.les.inf.puc-rio.br/har
